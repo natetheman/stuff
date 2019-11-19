@@ -1,0 +1,173 @@
+// ==UserScript==
+// @name         TagPro RandomFlair
+// @version      1.0.1
+// @description  Use a random flair each game. On the profile page you can select flairs to be included in the random pool.
+// @author       zeeres
+// @include         http://tagpro*.koalabeast.com*
+// @include      http://tangent.jukejuice.com:*
+// @include      http://*.newcompte.fr:*
+// @include        *://*.koalabeast.com*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_log
+// @grant        GM_addStyle
+// @updateURL       https://gist.github.com/zeeres/7daaa695660a46a15d66e567a7565148/raw/TagPro-RandomFlair.user.js
+// @downloadURL     https://gist.github.com/zeeres/7daaa695660a46a15d66e567a7565148/raw/TagPro-RandomFlair.user.js
+// ==/UserScript==
+
+// Based on BobSmithIV's RandomFlair script //
+
+var default_data = {stored: true, active: true, flairs: []};  // default data
+
+class Settings {
+    constructor(data) {
+        this.prefix = 'TPRF_';
+        if (GM_getValue(this.prefix+'stored') === undefined) {   // never stored values yet
+            this.data = data;
+            this.store_all();
+        } else {
+            this.data = {};
+            for (var d in default_data) {
+                this.data[d] = GM_getValue(this.prefix+d);
+            }
+        }
+    }
+    set(variable, value) {
+        this.data[variable] = value;
+        GM_setValue(this.prefix+variable, value);
+    }
+    delete(variable) {
+        delete this.data[variable];
+        GM_deleteValue(this.prefix+variable);
+    }
+    get(variable) {
+        var value = GM_getValue(this.prefix+variable);
+        var keys = Object.keys(default_data);
+        var found = false;
+        for(var i = 0; i < keys.length; i++) {
+            if (keys[i] === variable) found = true;
+        }
+        if (value === undefined && !found) {
+            this.set(variable, default_data[variable]);
+            return default_data[variable];
+        } else return value;
+    }
+    store_all() {
+        for (var d in this.data) {
+            GM_setValue(this.prefix+d, this.data[d]);
+        }
+    }
+    log_all() {
+        for (var d in this.data) {
+            console.log(d + ': ' + this.data[d]);
+        }
+    }
+    delete_all() {
+        for (var d in this.data) {
+            GM_deleteValue(this.prefix+d);
+        }
+    }
+}
+
+function ObjectIndexOf(myArray, property, searchTerm) {  // searches for a property in a {}-object
+    for(var i = 0, len = myArray.length; i < len; i++) {
+        if (myArray[i][property] === searchTerm) return i;
+    }
+    return -1;
+}
+
+var WhereAmI = function(){
+    if (window.location.port) {
+        return('game');
+    } else if (window.location.pathname.startsWith('/groups/')) {
+        return('group');
+    } else if (window.location.pathname.startsWith('/games/find')) {
+        return('joining');
+    } else if (window.location.pathname.startsWith('/profile/')) {
+        if ($('#saveSettings').length) {
+            return('myprofile'); // my profile page (logged in)
+        } else {
+            return('notmyprofile'); // not my profile page, or not logged in
+        }
+    } else {
+        return('elsewhere');
+    }
+};
+
+var IAmIn = WhereAmI();
+var settings = new Settings(default_data);
+// settings.delete_all();
+// settings = new Settings(default_data);
+
+if(IAmIn === 'myprofile') {  // group page
+    GM_addStyle('.profile .flair-list li.tprf-selected .flair-item { border-color: #6892bf }');
+    GM_addStyle('.profile .flair-list li.tprf-deselected .flair-item { border-color: #233140 }');
+    GM_addStyle('.profile .flair-list li.tprf-override .flair-item { border-color: #8BC34A }');
+    var flairs = settings.get('flairs');  // get known flairs
+    $('#owned-flair li.flair-available').each(function () {  // check for new flair
+        var flair = $(this).attr('data-flair');
+        var index = ObjectIndexOf(flairs, 'name', flair);
+        if (index === -1) {  // flair wasn't available until now
+            if (flair !== '') {
+                flairs.push({"name": flair, "selected": true});  // make new flair selected as the default, meaning it can be chosen by random
+            } else {
+                flairs.push({"name": flair, "selected": false});  // don't make the 'remove flair'-flair selected
+            }
+        }
+    });
+    $('li.flair-available').each(function () {  // add border to flairs
+        var flair = $(this).attr('data-flair');
+        var index = ObjectIndexOf(flairs, 'name', flair);
+        var selected = flairs[index].selected;  // get flair status
+        if (selected && flair !== '') {
+            $(this).addClass('tprf-selected');
+        }
+        $(this).click(function() {
+            var flair = $(this).attr('data-flair');
+            var flairs = settings.get('flairs');
+            if ($(this).hasClass("tprf-selected")) {
+                $('li[data-flair="'+flair+'"').each(function () {
+                    $(this).removeClass("tprf-selected");
+                    $(this).addClass("tprf-deselected");
+                });
+                flairs[ObjectIndexOf(flairs, 'name', flair)].selected = false;
+            } else {  // if ($(this).hasClass("tprf-deselected")) // or no tprf-*
+                $('li[data-flair="'+flair+'"').each(function () {
+                    $(this).removeClass("tprf-deselected");
+                    $(this).addClass("tprf-selected");
+                });
+                flairs[ObjectIndexOf(flairs, 'name', flair)].selected = true;
+            }
+            settings.set('flairs', flairs);
+        });
+    });
+    settings.set('flairs', flairs);  // save the new set of flairs
+} else if (IAmIn === 'joining') {  // joiner
+    // randomly select a flair to use
+    var flairs = settings.get('flairs');
+    var flairs_selected = [];
+    for (var i = 0; i < flairs.length; i++) {  // get all selected flairs
+        if (flairs[i].selected) {
+            flairs_selected.push(i);
+        }
+    }
+
+    if (flairs_selected.length > 0) {  // only continue if at least one flair is selected, otherwise the last flair will remain
+        var chosenFlair = flairs_selected[Math.floor((Math.random() * flairs_selected.length))];
+        while (flairs[chosenFlair].name === '') {  // don't choose the "no flair"-flair
+            chosenFlair = flairs_selected[Math.floor((Math.random() * flairs.length))];
+        }
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.open("POST", '/profile/selectedFlair', true);
+        xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+        // send the POST request
+        xmlhttp.send('flair='+flairs[chosenFlair].name);
+        // if POST is unsuccessful, alert the user
+        xmlhttp.onreadystatechange=function(){
+            if (xmlhttp.readyState === 4 && xmlhttp.status !== 200) {
+                console.log('TagPro RandomFlair: Unable to toggle flair - POST request failed.');
+            }
+        };
+    }
+}
